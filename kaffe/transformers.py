@@ -9,6 +9,7 @@ import numpy as np
 from .caffe import get_caffe_resolver, has_pycaffe
 from .errors import KaffeError, print_stderr
 from .layers import NodeKind
+from .graph import Node
 
 
 class DataInjector(object):
@@ -282,9 +283,51 @@ class ParameterNamer(object):
                 names = ('mean', 'variance')
                 if len(node.data) == 4:
                     names += ('scale', 'offset')
+            elif node.kind == NodeKind.MemoryData:
+                names = ('mean', 'variance')
             else:
                 print_stderr('WARNING: Unhandled parameters: {}'.format(node.kind))
                 continue
             assert len(names) == len(node.data)
             node.data = dict(zip(names, node.data))
+        return graph
+
+class InputMeanFileReader(object):
+    '''
+    Read mean_file for Input layer if specified.
+    '''
+
+    def __call__(self, graph):
+        added_bn_nodes = []
+        for node in graph.nodes:
+            if (node.kind == NodeKind.MemoryData):
+                transform_param = getattr(node.layer, 'transform_param')
+                if transform_param and transform_param.mean_file:
+                    mean_file = transform_param.mean_file
+                    mean_data = get_caffe_resolver().caffepb.BlobProto()
+                    with open(mean_file, 'rb') as f:
+                        mean_data.ParseFromString(f.read())
+                        # copy logic from DataInjector.normalize_pb_data()
+                        c_i = mean_data.channels
+                        h = mean_data.height
+                        w = mean_data.width
+                        data = np.array(mean_data.data, dtype=np.float32).reshape(c_i, h, w)
+                        mean = np.mean(data, axis=(1, 2))
+                        # replace data layer with batchnorm layer to subtract mean
+                        bn_node = Node(node.name + '_bn',
+                                       NodeKind.BatchNorm)
+                        # set sigma=ones_like(data), gamma=1.0
+                        bn_node.data = [mean, np.ones_like(mean), np.ones_like(mean)]
+                        bn_node.output_shape = node.output_shape
+                        # insert this node between node and its children
+                        for child in node.children:
+                            bn_node.add_child(child)
+                        for child in bn_node.children:
+                            child.parents.remove(node)
+                            node.children.remove(child)
+                        bn_node.add_parent(node)
+                        added_bn_nodes.append(bn_node)
+        # change graph after for-loop
+        for bn_node in added_bn_nodes:
+            graph.add_node(bn_node)
         return graph

@@ -142,6 +142,10 @@ class LayerAdapter(object):
         p_w = self.get_kernel_value(params.pad_h, params.pad, 1, default=0)
         return KernelParameters(k_h, k_w, s_h, s_w, p_h, p_w)
 
+    @property
+    def transform_param(self):
+        assert self.kind == NodeKind.MemoryData
+        return getattr(self.layer, 'transform_param', lambda x: None)
 
 KernelParameters = namedtuple('KernelParameters', ['kernel_h', 'kernel_w', 'stride_h', 'stride_w',
                                                    'pad_h', 'pad_w'])

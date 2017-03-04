@@ -3,7 +3,7 @@ import numpy as np
 from ..errors import KaffeError, print_stderr
 from ..graph import GraphBuilder, NodeMapper
 from ..layers import NodeKind
-from ..transformers import (DataInjector, DataReshaper, NodeRenamer, ReLUFuser,
+from ..transformers import (DataInjector, DataReshaper, NodeRenamer, ReLUFuser, InputMeanFileReader,
                             BatchNormScaleBiasFuser, BatchNormPreprocessor, ParameterNamer)
 
 from . import network
@@ -232,6 +232,10 @@ class TensorFlowTransformer(object):
 
         # Transform the graph
         transformers = [
+            # Read input mean file if specified
+            # since it adds a BatchNorm layer, this is done before BatchNormScaleBiasFuser
+            InputMeanFileReader(),
+
             # Fuse split batch normalization layers
             BatchNormScaleBiasFuser(),
 
